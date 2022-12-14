@@ -744,20 +744,37 @@ contract Lido is ILido, StETH, AragonApp {
         // token shares.
 
         address stakingRouterAddress = getStakingRouter();
+        (
+            address[] memory moduleAddresses,
+            uint256[] memory moduleShares,
+            uint256[] memory moduleFees,
+            uint256[] memory moduleTreasuryFees
+        ) = IStakingRouter(stakingRouterAddress).getSharesTable();
 
+        uint256 totalTreasuryFee = 0;
+        uint256 totalModulesRewards = 0;
+        address treasury = getTreasury();
 
-        // address modulefee treasuryfee
+        uint256[] memory moduleRewardsToMint = new uint256[](moduleAddresses.length);
 
-        // (uint256 shares2mint, uint256 totalKeys, uint256[] memory moduleKeys) = IStakingRouter(stakingRouterAddress).calculateShares2Mint(
-        //     _totalRewards
-        // );
+        for (uint256 i = 0; i < moduleAddresses.length; i++) {
+            uint256 currentModuleRewards = _totalRewards * moduleShares[i] / TOTAL_BASIS_POINTS;
 
-        // // Mint the calculated amount of shares to this contract address. This will reduce the
-        // // balances of the holders, as if the fee was taken in parts from each of them.
-        // _mintShares(stakingRouterAddress, shares2mint);
+            moduleRewardsToMint[i] = currentModuleRewards * moduleFees[i] / TOTAL_BASIS_POINTS;
+            totalTreasuryFee += currentModuleRewards * moduleTreasuryFees[i] / TOTAL_BASIS_POINTS;
+            totalModulesRewards += moduleRewardsToMint[i];
+        }
 
-        // //distribute shares
-        // IStakingRouter(stakingRouterAddress).distributeShares(shares2mint, totalKeys, moduleKeys);
+        _mintShares(address(this), _computeShare2Mint(totalTreasuryFee + totalModulesRewards));
+
+        for (uint256 j = 0; j < moduleAddresses.length; j++) {
+            _transferShares(address(this), moduleAddresses[j], getSharesByPooledEth(moduleRewardsToMint[j]));
+        }
+        _transferShares(address(this), treasury, getSharesByPooledEth(totalTreasuryFee));
+    }
+
+    function _computeShare2Mint(uint256 _rewards) internal returns (uint256) {
+        return _rewards.mul(_getTotalShares()).div(_getTotalPooledEther().sub(_rewards));
     }
 
     /**
